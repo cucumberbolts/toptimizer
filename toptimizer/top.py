@@ -2,12 +2,12 @@
 Common funcionalities for topology optimization
 """
 
-from enum import Flag
+from enum import IntEnum, Flag
 
 from typing import Iterable, Generator
 
 import numpy as np
-from scipy.sparse import csc_array
+from scipy.sparse import coo_array, csc_array
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -21,6 +21,13 @@ class Fix(Flag):
     XY = 0b11
 
 
+class Passive(IntEnum):
+    """ Enum to specify passive elements """
+    NONE = 0
+    VOID = 1
+    SOLID = 2
+
+
 class Design:
     """
     Class for specifying the boundary conditions for the BESO optimizer
@@ -32,7 +39,7 @@ class Design:
         self.__forces_dict = {} # Used for the construction of the self.forces matrix
         self.__forces = None
         self.fixed = set()
-        # self.passive = {}  TODO: Implement this
+        self.passive = np.full((nely, nelx), Passive.NONE)
 
 
     def add_forces(self, nodes_x: Iterable[int], nodes_y: Iterable[int], *, forces_x: Iterable[float] = None, forces_y: Iterable[float] = None) -> None:
@@ -72,7 +79,6 @@ class Design:
 
         # Map each force value to their corresponding degree of freedom on which they act
         num_forces = len(forces_x)  # The lengths of all four lists should be the same at this point
-        if num_forces != 1: raise ValueError("Loading with more than one force is not supported (yet!)")
         for i in range(num_forces):
             if forces_x[i] != 0:
                 dof = 2 * (nodes_y[i] * (self.nelx + 1) + nodes_x[i])
@@ -121,26 +127,46 @@ class Design:
 
     def add_fixed(self, fix: Fix, nodes_x: Iterable[int], nodes_y: Iterable[int]) -> None:
         """
-        Add fixed degrees of freedom
+        Define fixed degrees of freedom
 
         Parameters:
         -----------
-        fix: Fix
+        fix : Fix
             Fix the nodes in x, y, or both
-        nodes_x: Iterable[int]
+        nodes_x : Iterable[int]
             x coordinates of the nodes to fix
-        nodes_y: Iterable[int]
+        nodes_y : Iterable[int]
             y coordinates of the nodes to fix
         """
 
         if len(nodes_x) != len(nodes_y):
-            raise ValueError("Number of fixed node component lists do not match")
+            raise ValueError("Number of fixed node coordinate lists do not match")
 
         for node_x, node_y in zip(nodes_x, nodes_y):
             if fix & Fix.X:
                 self.fixed.add(2 * (node_y * (self.nelx + 1) + node_x))
             if fix & Fix.Y:
                 self.fixed.add(2 * (node_y * (self.nelx + 1) + node_x) + 1)
+
+
+    def add_passive(self, passive: Passive, elems_x: Iterable[int], elems_y: Iterable[int]) -> None:
+        """
+        Define passive elements
+
+        Parameters:
+        -----------
+        passive : Passive
+            Force the elements to be void or solid
+        elems_x : Iterable[int]
+            x coordinates of passive elements
+        elems_y : Iterable[int]
+            y coordinates of passive elements
+        """
+
+        if len(elems_x) != len(elems_y):
+            raise ValueError("Number of passive element coordinate lists do not match")
+
+        self.passive[np.ix_(elems_y, elems_x)] = passive
 
 
 def animate(design: Design, optimizer: Generator[np.array, None, None]) -> None:

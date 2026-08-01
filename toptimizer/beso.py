@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from typing import Generator
 
-from .top import Design, animate
+from .top import Design, Passive
 
 import numpy as np
 from scipy.sparse.linalg import spsolve
@@ -76,10 +76,13 @@ def fea(x: np.array, design: Design, penal: float) -> np.array:
 
     dof_count = 2 * (nelx + 1) * (nely + 1)
 
+    # Force matrix, where each column is a force vector
+    F = design.get_forces()
     # Global stiffness matrix
     # K = dok_array((dof_count, dof_count))
     K = np.zeros((dof_count, dof_count))
-    U = np.zeros(dof_count)
+    # Displacement vector
+    U = np.zeros((dof_count, F.shape[1]))
 
     # Assemble the global stiffness matrix
     for ely in range(nely):
@@ -99,19 +102,23 @@ def fea(x: np.array, design: Design, penal: float) -> np.array:
 
     free_dofs = [d for d in range(dof_count) if d not in design.fixed]
 
-    F = design.get_forces()
-
-    U[np.ix_(free_dofs)] = spsolve(
+    y = spsolve(
         K[np.ix_(free_dofs, free_dofs)],
-        F[np.ix_(free_dofs)]
+        F[np.array(free_dofs), :]
     )
+
+    # TODO: There HAS to be a better way...
+    if isinstance(y, np.ndarray):
+        U[np.array(free_dofs), :] = y.reshape((-1, 1))
+    else:
+        U[np.array(free_dofs), :] = y.todense()
 
     U[np.ix_(list(design.fixed))] = 0
 
     return U
 
 
-def sensitivity(x: np.array, U: np.array, params: BesoParams) -> np.array:
+def sensitivity(x: np.array, U: np.array, params: BesoParams) -> tuple[np.array, float]:
     """
     Calculate the sensitivities of each element
     dc = 1/2 * Ui^T * Ki * Ui
@@ -121,12 +128,13 @@ def sensitivity(x: np.array, U: np.array, params: BesoParams) -> np.array:
     x : np.array
         Array of design variables, 'SOLID' for solid, 'VOID' for void
     U : np.array
-        Local displacements
+        Global displacement vector
 
     Returns
     -------
-    np.array
+    tuple[np.array, float]
         Array of sensitivity values for each element in the design domain
+        and the total compliance under the load
     """
 
     nely, nelx = x.shape
@@ -147,21 +155,23 @@ def sensitivity(x: np.array, U: np.array, params: BesoParams) -> np.array:
                 2*ll,     2*ll+1,      # lower-left
             ]
 
-            # Get the element displacement from the global displacement vector
-            ue = U[np.ix_(edof)]
+            for i in range(U.shape[1]):
+                # Get the element displacement from the global displacement vector
+                ue = U[np.array(edof), i]
 
-            # Calculate the compliance
-            # c = 0.5 * ue.T @ K_LOCAL @ ue
-            c = ue.T @ K_LOCAL @ ue
+                # Calculate the compliance
+                # c = 0.5 * ue.T @ K_LOCAL @ ue
+                ce = ue.T @ K_LOCAL @ ue
+                c += ce
 
-            # Calculate the sensitivity
-            # dc[ely, elx] = -params.penal * x[ely, elx] ** (params.penal - 1) * c
-            dc[ely, elx] = x[ely, elx] ** (params.penal - 1) * c
+                # Calculate the sensitivity
+                # dc[ely, elx] += -params.penal * x[ely, elx] ** (params.penal - 1) * ce
+                dc[ely, elx] += x[ely, elx] ** (params.penal - 1) * ce
 
     # Filter the sensitivities
     dcf = filter(x, params.rmin, dc)
 
-    return dcf
+    return dcf, c
 
 
 def filter(x: np.array, rmin: float, dc: np.array) -> np.array:
@@ -210,7 +220,7 @@ def filter(x: np.array, rmin: float, dc: np.array) -> np.array:
     return dcn
 
 
-def update(x: np.array, dc: np.array, vol: float) -> np.array:
+def update(x: np.array, dc: np.array, vol: float, passive: np.array) -> np.array:
     """
     Updates the design variables given filtered sensitivities
     and target volume fraction using the bisection algorithm.
@@ -223,6 +233,8 @@ def update(x: np.array, dc: np.array, vol: float) -> np.array:
         Array of filtered sensitivities
     vol : float
         Target volume
+    passive : np.array
+        Array defining passive elements in x
 
     Returns
     -------
@@ -238,7 +250,6 @@ def update(x: np.array, dc: np.array, vol: float) -> np.array:
     threshold = 0.0
 
     # Find the sensitivity threshold with the bisection algorithm
-
     low  = dc.min()
     high = dc.max()
 
@@ -254,6 +265,10 @@ def update(x: np.array, dc: np.array, vol: float) -> np.array:
                     x[ely, elx] = SOLID
                 else:
                     x[ely, elx] = VOID
+
+        # Passive elements
+        x[passive==Passive.VOID] = VOID
+        x[passive==Passive.SOLID] = SOLID
 
         if x.sum() > vol:
             low = threshold
@@ -289,24 +304,30 @@ def beso(design: Design, params: BesoParams = None) -> Generator[np.array, None,
     x  = np.tile(SOLID, (design.nely, design.nelx))  # Design variables
     dc = np.zeros((design.nely, design.nelx))        # Sensitivity values
 
-    current_vol = design.nelx * design.nely * SOLID
-    target_vol  = design.nelx * design.nely * params.volfrac
+    c_hist = []  # Keep track of compliance values
 
-    loop = 0
-    change = 0.1
+    current_vol = design.nelx * design.nely * SOLID  # Target volume for current iteration
+    target_vol  = design.nelx * design.nely * params.volfrac  # Target volume of final design
+
+    # Force passive void elements to be void
+    # (Everything is already initialized to solid)
+    x[design.passive==Passive.VOID] = VOID
+
+    it = 0
+    change = 1
 
     # Start Iteration
-    while change > 0.01:
-        x_old = np.copy(x)
-
+    while change > 0.001:
         # Finite element analysis
         U = fea(x, design, params.penal)
 
         # Sensitivity analysis
         dc_old = np.copy(dc)
-        dc = sensitivity(x, U, params)
+        dc, c = sensitivity(x, U, params)
+        c_hist.append(c)
+
         # Average the sensitivities with the previous iteration
-        if loop > 0:
+        if it > 0:
             dc = 0.5 * (dc + dc_old)
 
         # Update the current iteration's target volume
@@ -314,35 +335,20 @@ def beso(design: Design, params: BesoParams = None) -> Generator[np.array, None,
         if current_vol > target_vol:
             current_vol *= 1 - params.ert
 
-        # Change the design variables according to sensitivity analysis
-        x = update(x, dc, current_vol)
+        # Update the design variables according to sensitivity analysis
+        x = update(x, dc, current_vol, design.passive)
 
-        change = abs((x - x_old).sum() / x.sum())
+        # Check for convergence and log information
+        vol = x.sum() / design.nelx / design.nely
+        if it > 9:
+            old_c = sum(c_hist[it-9:it-4])
+            new_c = sum(c_hist[it-4:])
+            change = np.abs((new_c - old_c) / old_c)
 
-        # print(f"It.: {loop} Obj.: {c:10.4f} Vol.: {x.sum() / nelx / nely:6.3f} Ch.: {change:6.3f}")
-        print(f"It.: {loop} Vol.: {x.sum() / (design.nelx * design.nely):6.3f} Ch.: {change:6.3f}")
+            print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {vol:6.3f} Change: {change:6.3f}")
+        else:
+            print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {vol:6.3f}")
 
-        loop += 1
+        it += 1
 
         yield x
-
-
-if __name__ == "__main__":
-    from .top import Design, Fix
-
-    design = Design(60, 20)
-
-    # Downwards force on the top-left corner
-    design.add_forces([0], [0], forces_y=[-1])
-
-    # Fix the bottom-right corner in the y direction
-    design.add_fixed(Fix.Y, [design.nelx], [design.nely])
-    # Fix the left wall in the x direction
-    design.add_fixed(Fix.X,
-        [0] * (design.nely + 1),
-        range(design.nely + 1),
-    )
-
-    optimizer = beso(design)
-
-    animate(design, optimizer)

@@ -18,13 +18,10 @@ venv/Scripts/activate.bat # Windows
 pip install -r requirements.txt
 ```
 
-The file `main.py` contains a quick demo on how to use the topology optimizer:
+The file `main.py` contains a quick demo on how to use the BESO topology optimizer. There are 3 predefined boundary conditions which can be changed by setting the `case` variable. You may also define your own.
 ```bash
 python main.py
 ```
-
-### BESO
-The BESO algorithm is implemented in `toptimizer/beso.py`. This file can be run with `python -m toptimizer.beso` for a short demo of the MBB Half Beam, or imported, as seen in `main.py`.
 
 ### OC
 Currently, the OC algorithm only works as a standalone file, which can be run with `python toptimizer/top99.py`.
