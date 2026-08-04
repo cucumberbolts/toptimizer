@@ -213,6 +213,7 @@ def animate(design: Design, optimizer: Generator[np.array, None, None]) -> None:
         frames=optimizer,
         repeat_delay=0.0,
         save_count=10,
+        interval=0,
         blit=True,
         repeat=False
     )

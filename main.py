@@ -2,11 +2,17 @@ from toptimizer import beso, top
 
 import numpy as np
 
+import matplotlib.pyplot as plt
+
+from pyinstrument import Profiler
+
 if __name__ == "__main__":
     # 1: MBB half beam
     # 2: 2-force cantilever
     # 3: Cantilever with hole
-    case = 3
+    case = 1
+
+    profile = False
 
     if case == 1:
         design = top.Design(60, 20)
@@ -72,4 +78,22 @@ if __name__ == "__main__":
         print(f"Error: invalid case selected for boundary conditions: {case}")
         exit(1)
 
-    top.animate(design, optimizer)
+    if profile:
+        fig, ax = plt.subplots()
+        im = ax.matshow(np.zeros((design.nely, design.nelx)))
+
+        # Specify the upper and lower bounds of the values to
+        # be plotted so the colours can be displayed properly
+        im.set_clim(0.0, 1.0)
+
+        with Profiler(interval=0.05) as profiler:
+            for x in optimizer:
+                final_image = x
+
+        profiler.print()
+
+        ax.matshow(final_image)
+
+        plt.show()
+    else:
+        top.animate(design, optimizer)
