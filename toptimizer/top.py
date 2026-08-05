@@ -36,10 +36,16 @@ class Design:
     def __init__(self, nelx: int, nely: int):
         self.nelx = nelx
         self.nely = nely
-        self.__forces_dict = {} # Used for the construction of the self.forces matrix
+
+        # Loading forces can be accessed through the 'forces' property
+        self.__forces_dict = {} # Used for the construction of the self.__forces matrix
         self.__forces = None
+
         self.fixed = set()
         self.passive = np.full((nely, nelx), Passive.NONE)
+
+        self.E  = 1    # Young's modulus
+        self.nu = 0.3  # Poisson's ratio
 
 
     def add_forces(self, nodes_x: Iterable[int], nodes_y: Iterable[int], *, forces_x: Iterable[float] = None, forces_y: Iterable[float] = None) -> None:
@@ -97,7 +103,8 @@ class Design:
         self.__forces = None
 
 
-    def get_forces(self) -> np.array:
+    @property
+    def forces(self) -> np.array:
         """
         Assembles the force matrix into a csc_array and returns it
 
@@ -212,7 +219,7 @@ def animate(design: Design, optimizer: Generator[np.array, None, None]) -> None:
         fargs=[im],
         frames=optimizer,
         repeat_delay=0.0,
-        save_count=10,
+        cache_frame_data=False,
         interval=0,
         blit=True,
         repeat=False

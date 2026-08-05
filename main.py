@@ -1,10 +1,15 @@
-from toptimizer import beso, top
+"""
+Informal test cases and demo for the beso module
+"""
+
+import sys
 
 import numpy as np
-
 import matplotlib.pyplot as plt
 
 from pyinstrument import Profiler
+
+from toptimizer import beso, top
 
 if __name__ == "__main__":
     # 1: MBB half beam
@@ -12,7 +17,7 @@ if __name__ == "__main__":
     # 3: Cantilever with hole
     case = 1
 
-    profile = False
+    profile = True
 
     if case == 1:
         design = top.Design(60, 20)
@@ -28,7 +33,7 @@ if __name__ == "__main__":
             range(design.nely + 1),
         )
 
-        optimizer = beso.beso(design)
+        optimizer = beso.Beso(design)
     elif case == 2:
         design = top.Design(30, 30)
 
@@ -45,9 +50,7 @@ if __name__ == "__main__":
             forces_y=[1, -1]
         )
 
-        params = beso.BesoParams(volfrac=0.4, rmin=1.2)
-
-        optimizer = beso.beso(design, params)
+        optimizer = beso.Beso(design, volfrac=0.4, rmin=1.2)
     elif case == 3:
         design = top.Design(45, 30)
 
@@ -71,12 +74,10 @@ if __name__ == "__main__":
             forces_y=[-1]
         )
 
-        params = beso.BesoParams(volfrac=0.5, ert=0.04)
-
-        optimizer = beso.beso(design, params)
+        optimizer = beso.Beso(design, volfrac=0.5, ert=0.04)
     else:
         print(f"Error: invalid case selected for boundary conditions: {case}")
-        exit(1)
+        sys.exit(1)
 
     if profile:
         fig, ax = plt.subplots()
