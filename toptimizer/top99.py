@@ -27,7 +27,7 @@ from pyinstrument import Profiler
 # See the top() function for details
 NELX = 60
 NELY = 20
-VOLFRAC = 0.3
+VOLFRAC = 0.5
 PENAL = 3
 RMIN = 1.5
 

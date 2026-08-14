@@ -1,5 +1,5 @@
 """
-Implementation of BESO optimization algorithm
+Implementation of OC optimization algorithm
 """
 
 from typing import Generator
@@ -11,22 +11,17 @@ from scipy.sparse.linalg import spsolve
 from .top import Design, Passive
 
 
-SOLID = 1.0
-VOID = 0.001
-
-
-class Beso:
+class Oc:
     """
     Iterable object that successively yields the next
-    iteration of the optimization loop calculated using the BESO
-    (Bi-directional Evolutionary Structural Optimization) algorithm
+    iteration of the optimization loop calculated using
+    the OC (Optimality Criteria) algorithm
     """
 
     def __init__(self, design: Design, *,
             penal: float   = 3.0,
             volfrac: float = 0.3,
-            rmin: float    = 1.5,
-            ert: float     = 0.02
+            rmin: float    = 1.5
         ):
 
         """
@@ -43,25 +38,15 @@ class Beso:
             Volume fraction of the optimized design
         rmin : float
             Sensitivity filter radius
-        ert : float
-            Evolutionary rate of BESO
         """
 
         self.penal = penal
         self.volfrac = volfrac
         self.rmin = rmin
-        self.ert = ert
 
         self.design = design
 
-        self.x = np.tile(SOLID, (design.nely, design.nelx))  # Design variables
-
-        # Force passive void elements to be void
-        # (Everything is already initialized to solid)
-        self.x[design.passive==Passive.VOID] = VOID
-
-        # Keep track of compliance values
-        self.c_hist = []
+        self.x = np.tile(self.volfrac, (design.nely, design.nelx))  # Design variables
 
         #######################################
         ### Assemble local stiffness matrix ###
@@ -88,24 +73,6 @@ class Beso:
         ###################
         ### Prepare FEA ###
         ###################
-
-        # DEGREES OF FREEDOM
-        # ------------------
-        # Each element has 8 degrees of freedom (DOFs)
-        # --one for each x and y component of each node
-        #
-        # An example numbering of degrees of freedom for
-        # a 1x2 design domain (nelx = 2, nely = 1):
-        # (0, 1) (2, 3) (4, 5)
-        #    +------+------+
-        #    |      |      |
-        #    |  e1  |  e2  |
-        #    +------+------+
-        # (6, 7) (8, 9) (10, 11)
-        #
-        # DOFs are indexed in a clockwise fashion, starting
-        # with the top-left node's x-component. For example,
-        # the DOFs of e1 are: [0, 1, 2, 3, 8, 9, 6, 7]
 
         nely, nelx = self.design.nely, self.design.nelx
 
@@ -160,7 +127,7 @@ class Beso:
 
     def __iter__(self) -> Generator[np.array, None, None]:
         """
-        Optimize topology using the BESO algorithm and
+        Optimize topology using the OC algorithm and
         yield the design variable values for each iteration
 
         Returns:
@@ -170,49 +137,28 @@ class Beso:
             iteration of the design variables
         """
 
-        dc = np.zeros(self.x.shape)  # Sensitivity values
-
         nel = self.design.nelx * self.design.nely
-
-        current_vol = nel * SOLID  # Target volume for current iteration
-        target_vol  = nel * self.volfrac  # Target volume of final design
 
         it = 0
         change = 1
 
-        # Start Iteration
-        while change > 0.001:
-            # Finite element analysis
+        while change > 0.01:
+            x_old = np.copy(self.x)
+
             U = self.fea()
 
-            # Sensitivity analysis
-            dc_old = np.copy(dc)
+            # Perform sensitivity analysis
             dc, c = self.sensitivity(U)
 
-            self.c_hist.append(c)
+            # Filter the sensitivity values
+            dc = self.check(dc)
 
-            # Average the sensitivities with the previous iteration
-            if it > 0:
-                dc = 0.5 * (dc + dc_old)
+            # Design update by the optimality criteria method
+            self.x = self.update(dc)
 
-            # Update the current iteration's target volume
-            # according to the evolutionary rate
-            if current_vol > target_vol:
-                current_vol *= 1.0 - self.ert
+            change = abs(self.x - x_old).max()
 
-            # Update the design variables according to sensitivity analysis
-            self.update(dc, current_vol)
-
-            # Check for convergence and log information
-            vol = self.x.sum() / nel
-            if it > 9:
-                old_c = sum(self.c_hist[it-9:it-4])
-                new_c = sum(self.c_hist[it-4:])
-                change = np.abs((new_c - old_c) / old_c)
-
-                print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {vol:6.3f} Change: {change:6.3f}")
-            else:
-                print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {vol:6.3f}")
+            print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {self.x.sum() / nel:6.3f} Change: {change:6.3f}")
 
             it += 1
 
@@ -221,8 +167,8 @@ class Beso:
 
     def fea(self) -> np.array:
         """
-        Perform finite element analysis to
-        obtain the global displacement vector.
+        Perform finite element analysis
+        to obtain displacement vector
 
         Returns
         -------
@@ -265,7 +211,45 @@ class Beso:
         return U
 
 
-    def sensitivity(self, U: np.array) -> tuple[np.array, float]:
+    def sensitivity_loop(self, U: np.array) -> np.array:
+        """
+        Unvectorized sensitivity
+        """
+
+        nely, nelx = self.x.shape
+
+        # Initialize compliance (objective function) to zero
+        c = 0.0
+
+        dc = np.zeros((nely, nelx))
+
+        for ely in range(nely):
+            for elx in range(nelx):
+                # Upper left and lower left element node number in global node matrix
+                ul = elx + (nelx + 1) * ely
+                ll = elx + (nelx + 1) * (ely + 1)
+
+                edof = [
+                    2*ul,     2*ul+1,      # upper-left
+                    2*(ul+1), 2*(ul+1)+1,  # upper-right
+                    2*(ll+1), 2*(ll+1)+1,  # lower-right
+                    2*ll,     2*ll+1,      # lower-left
+                ]
+
+                # Extracts the element displacement vector Ue
+                # from the global displacement vector U.
+                # This is needed to compute the element's contribution
+                # to the compliance and its sensitivity
+                Ue = U[np.ix_(edof)]
+                # Compliance calculation
+                t = Ue.T @ self.ke @ Ue
+                c += (self.x[ely, elx]**self.penal) * Ue.T @ self.ke @ Ue    # Accumulates the total compliance
+                dc[ely, elx] = -self.penal * self.x[ely, elx]**(self.penal-1) * t  # Sensitivity of compliance with respect to material density calculation
+
+        return dc
+
+
+    def sensitivity(self, U: np.array) -> np.array:
         """
         Calculate the sensitivity of each element
 
@@ -297,56 +281,74 @@ class Beso:
             c += np.sum(self.x**self.penal * ce)
 
             # Compute the sensitivity of each element, dc
-            # dc = xe^(penal - 1) * ue^T * ke * ue
-            #    = xe^(penal - 1) * ce
-            dc += self.x ** (self.penal - 1) * ce
+            # dc = -penal * xe^(penal - 1) * ue^T * ke * ue
+            #    = -penal * xe^(penal - 1) * ce
+            dc += -self.penal * self.x ** (self.penal - 1) * ce
 
-        # Filter the sensitivities
-        dcf = np.reshape(self.filter @ np.reshape(dc, -1), dc.shape)
-
-        return dcf, c
+        return dc, c
 
 
-    def update(self, dc: np.array, vol: float):
+
+    def check(self, dc: np.array) -> np.array:
         """
-        Updates the design variables given filtered sensitivities
-        and target volume using the bisection algorithm
+        Filter sensitivities by applying the mesh-independency filter.
+        This is done to avoid the "checkerboarding problem"
+
+        Parameters:
+        -----------
+        dc : np.array
+            Sensitivity of the compliance (objective function) with respect to the design variables x
+
+        Returns:
+        --------
+        np.array:
+            The filtered sensitivities. These are modified
+            versions of the original sensitivities dc after
+            appllying the mesh-independency filter.
+        """
+
+        dcf = np.reshape(self.filter @ np.reshape(dc * self.x, -1), dc.shape) / self.x
+        return dcf
+
+
+    def update(self, dc: np.array) -> np.array:
+        """
+        Updates the density values of the design
+        variables with optimality criteria method
 
         Parameters
         ----------
         dc : np.array
             Array of filtered sensitivities
-        vol : float
-            Target volume
+
+        Returns:
+        --------
+        np.array:
+            The new design variables
         """
 
-        # Sensitivity threshold:
-        # Variables with sensitivities lower than the threshold are made solid and
-        # variables with sensitivities higher than the threshold are made void.
-        threshold = 0.0
+        # Upper and lower bound for Lagrange multiplier
+        # Bounds are used in bisectioning method to find it
+        l_low  = 0
+        l_high = 100000
 
-        # Find the sensitivity threshold with the bisection algorithm
-        low  = dc.min()
-        high = dc.max()
+        # The move limit, which restricts how much the
+        # material densities can change between iterations.
+        # This ensures stability and prevents large, abrupt
+        # changes in the design
+        move = 0.2
 
-        while (high - low) / high > 0.00001:
-            threshold = (low + high) * 0.5
+        x_new = np.zeros(self.x.shape)
 
-            # FROM BESO2D.py
-            self.x = np.maximum(np.tile(VOID, self.x.shape), np.sign(dc - threshold))
+        # Bisection method to find Lagrange multiplier
+        while l_high - l_low > 0.0001:
+            l_mid = 0.5 * (l_low + l_high)
 
-            # for ely in range(nely):
-            #     for elx in range(nelx):
-            #         if dc[ely, elx] > threshold:
-            #             x[ely, elx] = SOLID
-            #         else:
-            #             x[ely, elx] = VOID
+            x_new = np.maximum(0.001, np.maximum(self.x - move, np.minimum(1, np.minimum(self.x + move, self.x * np.sqrt(-dc / l_mid)))))
 
-            # Passive elements
-            self.x[self.design.passive==Passive.VOID] = VOID
-            self.x[self.design.passive==Passive.SOLID] = SOLID
-
-            if self.x.sum() > vol:
-                low = threshold
+            if np.sum(x_new) - self.volfrac * self.design.nelx * self.design.nely > 0:
+                l_low = l_mid
             else:
-                high = threshold
+                l_high = l_mid
+
+        return x_new

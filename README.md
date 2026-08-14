@@ -18,13 +18,10 @@ venv/Scripts/activate.bat # Windows
 pip install -r requirements.txt
 ```
 
-The file `main.py` contains a quick demo on how to use the BESO topology optimizer. There are 3 predefined boundary conditions which can be changed by setting the `case` variable. You may also define your own.
+The file `main.py` contains a quick demo on how to use the BESO topology optimizer. There are 3 predefined boundary conditions which can be changed by setting the `case` variable. You may also define your own. The choice between BESO and OC to update the design variables can be chosen with the `algorithm` variable.
 ```bash
 python main.py
 ```
-
-### OC
-Currently, the OC algorithm only works as a standalone file, which can be run with `python toptimizer/top99.py`.
 
 ## References
 Several papers were referenced, found in the `papers/` folder. The code from these papers can be found in `ext/`.

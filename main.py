@@ -9,13 +9,17 @@ import matplotlib.pyplot as plt
 
 from pyinstrument import Profiler
 
-from toptimizer import beso, top
+from toptimizer import beso, oc, top
 
 if __name__ == "__main__":
     # 1: MBB half beam
     # 2: 2-force cantilever
     # 3: Cantilever with hole
     case = 1
+
+    # 1: BESO
+    # 2: OC
+    algorithm = 1
 
     profile = True
 
@@ -33,7 +37,10 @@ if __name__ == "__main__":
             range(design.nely + 1),
         )
 
-        optimizer = beso.Beso(design)
+        if algorithm == 1:
+            optimizer = beso.Beso(design)
+        elif algorithm == 2:
+            optimizer = oc.Oc(design, volfrac=0.5)
     elif case == 2:
         design = top.Design(30, 30)
 
