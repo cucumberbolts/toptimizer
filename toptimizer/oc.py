@@ -46,8 +46,6 @@ class Oc:
 
         self.design = design
 
-        self.x = np.tile(self.volfrac, (design.nely, design.nelx))  # Design variables
-
         #######################################
         ### Assemble local stiffness matrix ###
         #######################################
@@ -137,6 +135,8 @@ class Oc:
             iteration of the design variables
         """
 
+        self.x = np.tile(self.volfrac, (self.design.nely, self.design.nelx))  # Design variables
+
         nel = self.design.nelx * self.design.nely
 
         it = 0
@@ -163,6 +163,8 @@ class Oc:
             it += 1
 
             yield self.x
+
+        print("Done!")
 
 
     def fea(self) -> np.array:
@@ -211,44 +213,6 @@ class Oc:
         return U
 
 
-    def sensitivity_loop(self, U: np.array) -> np.array:
-        """
-        Unvectorized sensitivity
-        """
-
-        nely, nelx = self.x.shape
-
-        # Initialize compliance (objective function) to zero
-        c = 0.0
-
-        dc = np.zeros((nely, nelx))
-
-        for ely in range(nely):
-            for elx in range(nelx):
-                # Upper left and lower left element node number in global node matrix
-                ul = elx + (nelx + 1) * ely
-                ll = elx + (nelx + 1) * (ely + 1)
-
-                edof = [
-                    2*ul,     2*ul+1,      # upper-left
-                    2*(ul+1), 2*(ul+1)+1,  # upper-right
-                    2*(ll+1), 2*(ll+1)+1,  # lower-right
-                    2*ll,     2*ll+1,      # lower-left
-                ]
-
-                # Extracts the element displacement vector Ue
-                # from the global displacement vector U.
-                # This is needed to compute the element's contribution
-                # to the compliance and its sensitivity
-                Ue = U[np.ix_(edof)]
-                # Compliance calculation
-                t = Ue.T @ self.ke @ Ue
-                c += (self.x[ely, elx]**self.penal) * Ue.T @ self.ke @ Ue    # Accumulates the total compliance
-                dc[ely, elx] = -self.penal * self.x[ely, elx]**(self.penal-1) * t  # Sensitivity of compliance with respect to material density calculation
-
-        return dc
-
-
     def sensitivity(self, U: np.array) -> np.array:
         """
         Calculate the sensitivity of each element
@@ -286,7 +250,6 @@ class Oc:
             dc += -self.penal * self.x ** (self.penal - 1) * ce
 
         return dc, c
-
 
 
     def check(self, dc: np.array) -> np.array:

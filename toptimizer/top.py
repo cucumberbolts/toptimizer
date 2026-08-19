@@ -176,18 +176,26 @@ class Design:
         self.passive[np.ix_(elems_y, elems_x)] = passive
 
 
-def animate(design: Design, optimizer: Generator[np.array, None, None]) -> None:
+def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
     """
     Create an animation in matplotlib of the optimization algorithm
 
     Parameters:
     -----------
-    optimizer : Generator[np.array, None, None]
-        The generator object that yields the design variables
+    optimizer: Beso | Oc
+        The optimizer class (Beso or Oc) whose __iter__()
+        function returns a generator that yields the design
+        variables of each iteration of the optimizing algorithm
+    path: str
+        Path to save the animation. Does not export to file
+        if path is None (default)
+    fps : int
+        FPS of the saved animation (default = 12)
     """
 
+    nelx, nely = optimizer.design.nelx, optimizer.design.nely
     fig, ax = plt.subplots()
-    im = ax.matshow(np.zeros((design.nely, design.nelx)))
+    im = ax.matshow(np.zeros((nely, nelx)))
 
     # Specify the upper and lower bounds of the values to
     # be plotted so the colours can be displayed properly
@@ -213,16 +221,35 @@ def animate(design: Design, optimizer: Generator[np.array, None, None]) -> None:
         image.set_data(x)
         return [image]
 
-    anim = FuncAnimation(
-        fig,
-        anim_update,
-        fargs=[im],
-        frames=optimizer,
-        repeat_delay=0.0,
-        cache_frame_data=False,
-        interval=0,
-        blit=True,
-        repeat=False
-    )
+    if path:
+        print("Generating frames...")
+        frames = [x for x in optimizer]
+
+        anim = FuncAnimation(
+            fig,
+            anim_update,
+            fargs=[im],
+            frames=frames,
+            repeat_delay=0.0,
+            interval=int(1000.0/fps),
+            blit=True,
+            repeat=False
+        )
+
+        print(f"Saving animation to {path}...")
+
+        anim.save(path, fps=fps)
+    else:
+        anim = FuncAnimation(
+            fig,
+            anim_update,
+            fargs=[im],
+            frames=optimizer,
+            repeat_delay=0.0,
+            cache_frame_data=False,
+            interval=0,
+            blit=True,
+            repeat=False
+        )
 
     plt.show()

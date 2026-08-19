@@ -21,7 +21,9 @@ if __name__ == "__main__":
     # 2: OC
     algorithm = 1
 
-    profile = True
+    profile = False
+
+    save_file = True
 
     if case == 1:
         design = top.Design(60, 20)
@@ -39,8 +41,10 @@ if __name__ == "__main__":
 
         if algorithm == 1:
             optimizer = beso.Beso(design)
+            file_name = "BESO_MBB_Half_Beam.gif"
         elif algorithm == 2:
             optimizer = oc.Oc(design, volfrac=0.5)
+            file_name = "OC_MBB_Half_Beam.gif"
     elif case == 2:
         design = top.Design(30, 30)
 
@@ -57,7 +61,12 @@ if __name__ == "__main__":
             forces_y=[1, -1]
         )
 
-        optimizer = beso.Beso(design, volfrac=0.4, rmin=1.2)
+        if algorithm == 1:
+            optimizer = beso.Beso(design, volfrac=0.4, rmin=1.2)
+            file_name = "BESO_2_Force_Cantilever.gif"
+        elif algorithm == 2:
+            optimizer = oc.Oc(design, volfrac=0.4, rmin=1.2)
+            file_name = "OC_2_Force_Cantilever.gif"
     elif case == 3:
         design = top.Design(45, 30)
 
@@ -82,6 +91,7 @@ if __name__ == "__main__":
         )
 
         optimizer = beso.Beso(design, volfrac=0.5, ert=0.04)
+        file_name = "BESO_Cantilever_With_Hole.gif"
     else:
         print(f"Error: invalid case selected for boundary conditions: {case}")
         sys.exit(1)
@@ -104,4 +114,7 @@ if __name__ == "__main__":
 
         plt.show()
     else:
-        top.animate(design, optimizer)
+        if save_file:
+            top.animate(optimizer, file_name)
+        else:
+            top.animate(optimizer)

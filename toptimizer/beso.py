@@ -54,15 +54,6 @@ class Beso:
 
         self.design = design
 
-        self.x = np.tile(SOLID, (design.nely, design.nelx))  # Design variables
-
-        # Force passive void elements to be void
-        # (Everything is already initialized to solid)
-        self.x[design.passive==Passive.VOID] = VOID
-
-        # Keep track of compliance values
-        self.c_hist = []
-
         #######################################
         ### Assemble local stiffness matrix ###
         #######################################
@@ -170,6 +161,15 @@ class Beso:
             iteration of the design variables
         """
 
+        self.x = np.tile(SOLID, (self.design.nely, self.design.nelx))  # Design variables
+
+        # Force passive void elements to be void
+        # (Everything is already initialized to solid)
+        self.x[self.design.passive==Passive.VOID] = VOID
+
+        # Keep track of compliance values
+        self.c_hist = []
+
         dc = np.zeros(self.x.shape)  # Sensitivity values
 
         nel = self.design.nelx * self.design.nely
@@ -217,6 +217,8 @@ class Beso:
             it += 1
 
             yield self.x
+
+        print("Done!")
 
 
     def fea(self) -> np.array:
