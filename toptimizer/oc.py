@@ -95,7 +95,7 @@ class Oc:
 
         # A slightly larger-than-needed bounding box of
         # the elements that are considered by the filter
-        square_size = (2 * int(np.ceil(rmin))) ** 2
+        square_size = (2 * int(np.ceil(rmin) + 1)) ** 2
         size = nelx * nely * square_size
         h_row = np.zeros(size)
         h_col = np.zeros(size)
@@ -162,7 +162,7 @@ class Oc:
 
             it += 1
 
-            yield self.x
+            yield np.copy(self.x)
 
         print("Done!")
 
@@ -238,7 +238,7 @@ class Oc:
 
             # For each element, compute the compliance, ce
             # ce = ue^T * ke * ue
-            ce = np.sum(U[self.elem_dofs, i] @ self.ke * U[self.elem_dofs, i], axis=1).reshape(self.x.shape)
+            ce = 0.5 * np.sum(U[self.elem_dofs, i] @ self.ke * U[self.elem_dofs, i], axis=1).reshape(self.x.shape)
 
             # Compute the global compliance, c
             # c = sum(x^penal * ce)

@@ -15,11 +15,11 @@ if __name__ == "__main__":
     # 1: MBB half beam
     # 2: 2-force cantilever
     # 3: Cantilever with hole
-    case = 1
+    case = 2
 
     # 1: BESO
     # 2: OC
-    algorithm = 1
+    algorithm = 2
 
     profile = False
 
@@ -40,13 +40,13 @@ if __name__ == "__main__":
         )
 
         if algorithm == 1:
-            optimizer = beso.Beso(design)
+            optimizer = beso.Beso(design, rmin=2.5, volfrac=0.3)
             file_name = "BESO_MBB_Half_Beam.gif"
         elif algorithm == 2:
-            optimizer = oc.Oc(design, volfrac=0.5)
+            optimizer = oc.Oc(design, volfrac=0.3)
             file_name = "OC_MBB_Half_Beam.gif"
     elif case == 2:
-        design = top.Design(30, 30)
+        design = top.Design(60, 60)
 
         # Fix the left wall in x and y
         design.add_fixed(top.Fix.XY,
@@ -115,6 +115,6 @@ if __name__ == "__main__":
         plt.show()
     else:
         if save_file:
-            top.animate(optimizer, file_name)
+            top.animate(optimizer, file_name, fps=12)
         else:
             top.animate(optimizer)

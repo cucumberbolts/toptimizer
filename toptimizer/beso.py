@@ -121,7 +121,7 @@ class Beso:
 
         # A slightly larger-than-needed bounding box of
         # the elements that are considered by the filter
-        square_size = (2 * int(np.ceil(rmin))) ** 2
+        square_size = (2 * int(np.ceil(rmin + 1))) ** 2
         size = nelx * nely * square_size
         h_row = np.zeros(size)
         h_col = np.zeros(size)
@@ -216,7 +216,7 @@ class Beso:
 
             it += 1
 
-            yield self.x
+            yield np.copy(self.x)
 
         print("Done!")
 
@@ -291,16 +291,19 @@ class Beso:
             # Note: the 'e' subscript denotes an element-wise (local) calculation
 
             # For each element, compute the compliance, ce
-            # ce = ue^T * ke * ue
-            ce = np.sum(U[self.elem_dofs, i] @ self.ke * U[self.elem_dofs, i], axis=1).reshape(self.x.shape)
+            # ce = 0.5 * ue^T * ke * ue
+            ce = 0.5 * np.sum(U[self.elem_dofs, i] @ self.ke * U[self.elem_dofs, i], axis=1).reshape(self.x.shape)
 
             # Compute the global compliance, c
             # c = sum(x^penal * ce)
             c += np.sum(self.x**self.penal * ce)
 
             # Compute the sensitivity of each element, dc
-            # dc = xe^(penal - 1) * ue^T * ke * ue
-            #    = xe^(penal - 1) * ce
+            # dc = -penal * xe^(penal - 1) * 0.5 * ue^T * ke * ue
+            #    = -penal * xe^(penal - 1) * ce
+            # Note that BESO only cares about the relative ranking
+            # of the elements, so the -penal factor can be dropped
+            # to make the sensitivity values positive (easier to rank)
             dc += self.x ** (self.penal - 1) * ce
 
         # Filter the sensitivities
@@ -323,8 +326,11 @@ class Beso:
         """
 
         # Sensitivity threshold:
-        # Variables with sensitivities lower than the threshold are made solid and
-        # variables with sensitivities higher than the threshold are made void.
+        # Variables with sensitivities lower than the threshold are made void and
+        # variables with sensitivities higher than the threshold are made solid.
+        # A higher sensitivity value indicates a greater decrease in compliance
+        # when the design variable is increased. Note this is because the -penal
+        # factor is dropped in the sensitivity analysis.
         threshold = 0.0
 
         # Find the sensitivity threshold with the bisection algorithm
@@ -334,15 +340,8 @@ class Beso:
         while (high - low) / high > 0.00001:
             threshold = (low + high) * 0.5
 
-            # FROM BESO2D.py
-            self.x = np.maximum(np.tile(VOID, self.x.shape), np.sign(dc - threshold))
-
-            # for ely in range(nely):
-            #     for elx in range(nelx):
-            #         if dc[ely, elx] > threshold:
-            #             x[ely, elx] = SOLID
-            #         else:
-            #             x[ely, elx] = VOID
+            self.x[:] = VOID
+            self.x[dc > threshold] = SOLID
 
             # Passive elements
             self.x[self.design.passive==Passive.VOID] = VOID
