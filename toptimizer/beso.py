@@ -8,7 +8,7 @@ import numpy as np
 from scipy.sparse import csc_array, csr_array
 from scipy.sparse.linalg import spsolve
 
-from .top import Design, Passive
+from .top import Design, Passive, IterInfo
 
 
 SOLID = 1.0
@@ -214,9 +214,10 @@ class Beso:
             else:
                 print(f"Iteration: {it} Compliance: {c:10.4f} Volume: {vol:6.3f}")
 
+            iter = it
             it += 1
 
-            yield np.copy(self.x)
+            yield IterInfo(np.copy(self.x), iter, c, self.x.sum() / nel, change)
 
         print("Done!")
 

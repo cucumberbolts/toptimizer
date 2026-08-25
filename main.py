@@ -106,11 +106,11 @@ if __name__ == "__main__":
 
         with Profiler(interval=0.05) as profiler:
             for x in optimizer:
-                final_image = x
+                final = x
 
         profiler.print()
 
-        ax.matshow(final_image)
+        ax.matshow(final.x)
 
         plt.show()
     else:

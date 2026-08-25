@@ -5,6 +5,7 @@ Common funcionalities for topology optimization
 from enum import IntEnum, Flag
 
 from typing import Iterable, Generator
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.sparse import coo_array, csc_array
@@ -12,6 +13,8 @@ from scipy.sparse import coo_array, csc_array
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+
+from . import beso
 
 
 class Fix(Flag):
@@ -176,6 +179,16 @@ class Design:
         self.passive[np.ix_(elems_y, elems_x)] = passive
 
 
+@dataclass(frozen=True)
+class IterInfo:
+    """ Information from each iteration of optimization """
+    x: np.array
+    it: int
+    c: float
+    volume: float
+    change: float
+
+
 def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
     """
     Create an animation in matplotlib of the optimization algorithm
@@ -196,22 +209,32 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
     # Figure for showing design variables
     fig, ax = plt.subplots()
     nelx, nely = optimizer.design.nelx, optimizer.design.nely
+    fig.canvas.manager.set_window_title("Design Variables")
+    if isinstance(optimizer, beso.Beso):
+        title = f"BESO (penal={optimizer.penal}, volfrac={optimizer.volfrac}, rmin={optimizer.rmin}, ert={optimizer.ert})\n"
+    else:
+        title = f"OC (penal={optimizer.penal}, volfrac={optimizer.volfrac}, rmin={optimizer.rmin})\n"
+    fig.suptitle(title)
+    plt.tight_layout()  # Make so that things do not overlap
+    iter_info = ax.set_title("")
+
     im = ax.matshow(np.zeros((nely, nelx)))
     # Specify the upper and lower bounds of the values to
     # be plotted so the colours can be displayed properly
     im.set_clim(0.0, 1.0)
     # Create a colourbar
-    fig.colorbar(im)
+    fig.colorbar(im, ax=ax)
 
     # Figure for showing compliance values
     fig2, ax2 = plt.subplots()
+    fig2.canvas.manager.set_window_title("Compliance")
     c_plot, = ax2.plot([], lw=4)
     ax2.set_ylim(0, 1)
     ax2.set_xlim(0, 1)
     ax2.set(xlabel="Iteration", ylabel="compliance", title="Compliance")
     ax2.grid()
 
-    def anim_update(x: np.array, optimizer, image: matplotlib.image.AxesImage, c_plot) -> list[matplotlib.artist.Artist]:
+    def anim_update(info: IterInfo, optimizer, image: matplotlib.image.AxesImage, c_plot) -> list[matplotlib.artist.Artist]:
         """
         Redraws the image when called by FuncAnimation
 
@@ -230,8 +253,8 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
             The Artist objects whose data were updated
         """
 
-        # Update the design domain
-        image.set_data(x)
+        # Update the design variables image
+        image.set_data(info.x)
 
         # Update the compliance plot
         ymin, ymax = ax2.get_ylim()
@@ -259,11 +282,13 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
         c = np.array(optimizer.c_hist)
         c_plot.set_data(i, c)
 
-        return [image, c_plot]
+        iter_info.set_text(f"Iteration: {info.it} Compliance: {info.c:10.4f} Volume: {info.volume:6.3f} Change: {info.change:6.3f}")
+
+        return [image, c_plot, iter_info]
 
     if path:
         print("Generating frames...")
-        frames = [x for x in optimizer]
+        frames = [info for info in optimizer]
 
         anim = FuncAnimation(
             fig,
