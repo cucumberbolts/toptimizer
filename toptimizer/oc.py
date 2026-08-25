@@ -139,6 +139,8 @@ class Oc:
 
         nel = self.design.nelx * self.design.nely
 
+        self.c_hist = []
+
         it = 0
         change = 1
 
@@ -149,6 +151,7 @@ class Oc:
 
             # Perform sensitivity analysis
             dc, c = self.sensitivity(U)
+            self.c_hist.append(c)
 
             # Filter the sensitivity values
             dc = self.check(dc)

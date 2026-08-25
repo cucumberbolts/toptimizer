@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     profile = False
 
-    save_file = True
+    save_file = False
 
     if case == 1:
         design = top.Design(60, 20)

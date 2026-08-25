@@ -193,15 +193,25 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
         FPS of the saved animation (default = 12)
     """
 
-    nelx, nely = optimizer.design.nelx, optimizer.design.nely
+    # Figure for showing design variables
     fig, ax = plt.subplots()
+    nelx, nely = optimizer.design.nelx, optimizer.design.nely
     im = ax.matshow(np.zeros((nely, nelx)))
-
     # Specify the upper and lower bounds of the values to
     # be plotted so the colours can be displayed properly
     im.set_clim(0.0, 1.0)
+    # Create a colourbar
+    fig.colorbar(im)
 
-    def anim_update(x: np.array, image: matplotlib.image.AxesImage) -> list[matplotlib.artist.Artist]:
+    # Figure for showing compliance values
+    fig2, ax2 = plt.subplots()
+    c_plot, = ax2.plot([], lw=4)
+    ax2.set_ylim(0, 1)
+    ax2.set_xlim(0, 1)
+    ax2.set(xlabel="Iteration", ylabel="compliance", title="Compliance")
+    ax2.grid()
+
+    def anim_update(x: np.array, optimizer, image: matplotlib.image.AxesImage, c_plot) -> list[matplotlib.artist.Artist]:
         """
         Redraws the image when called by FuncAnimation
 
@@ -209,6 +219,8 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
         -----------
         x : np.array
             The design variable values
+        optimizer :
+            The optimizer iterable object
         image : matplotlib.image.AxesImage
             The Axes image returned by plt.matshow()
 
@@ -218,8 +230,36 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
             The Artist objects whose data were updated
         """
 
+        # Update the design domain
         image.set_data(x)
-        return [image]
+
+        # Update the compliance plot
+        ymin, ymax = ax2.get_ylim()
+        max_c = max(optimizer.c_hist)
+        if max_c > ymax:
+            d, mag = np.modf(np.log10(max_c))
+            # Change the scale to count up by fives instead of twos
+            # if the first digit more than 3 (arbitrary choice)
+            scale = 5 if d > 0.47 else 2
+            step = np.ceil(10 ** (mag - 1)) * scale
+
+            ax2.set_yticks(np.arange(max_c, step=step))
+
+            ymax = np.ceil(max_c / step) * step + 1
+            ax2.set_ylim(ymin, ymax)
+
+            ax2.figure.canvas.draw()
+
+        xmin, xmax = ax2.get_xlim()
+        if len(optimizer.c_hist) > xmax:
+            ax2.set_xlim(xmin, xmax + 10)
+            ax2.figure.canvas.draw()
+
+        i = np.arange(len(optimizer.c_hist))
+        c = np.array(optimizer.c_hist)
+        c_plot.set_data(i, c)
+
+        return [image, c_plot]
 
     if path:
         print("Generating frames...")
@@ -228,7 +268,7 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
         anim = FuncAnimation(
             fig,
             anim_update,
-            fargs=[im],
+            fargs=[optimizer, im, c_plot],
             frames=frames,
             repeat_delay=0.0,
             interval=int(1000.0/fps),
@@ -243,7 +283,7 @@ def animate(optimizer, path: str = None, fps: float = 24.0) -> None:
         anim = FuncAnimation(
             fig,
             anim_update,
-            fargs=[im],
+            fargs=[optimizer, im, c_plot],
             frames=optimizer,
             repeat_delay=0.0,
             cache_frame_data=False,
